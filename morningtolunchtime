@@ -1,0 +1,70 @@
+import yfinance as yf
+import pandas as pd
+
+# Download MRK data for the last month with 5-minute intervals
+data = yf.download('MRK', period='1mo', interval='5m')
+
+
+
+# Convert the index (timestamps) to Eastern Time
+data.index = data.index.tz_convert('UTC').tz_localize(None)  # Remove existing timezone
+data.index = data.index.tz_localize('UTC').tz_convert('US/Eastern')  # Convert to Eastern Time
+
+# Define buy and sell times as variables
+buytime = '09:45'
+selltime = '13:30'
+
+# Filter data to get only the buy and sell times (based on the variables)
+data_buy = data.between_time(buytime, f'{buytime[:2]}:{int(buytime[3:]) + 1}')  # Only the buy time row
+data_sell = data.between_time(selltime, f'{selltime[:2]}:{int(selltime[3:]) + 1}')  # Only the sell time row
+
+# Use .loc[] to assign the Date column to avoid SettingWithCopyWarning
+data_buy = data_buy.copy()  # Create a copy to avoid SettingWithCopyWarning
+data_sell = data_sell.copy()  # Create a copy to avoid SettingWithCopyWarning
+
+data_buy['Date'] = data_buy.index.date
+data_sell['Date'] = data_sell.index.date
+
+# Merge buy and sell data on the 'Date' column
+merged_data = pd.merge(data_buy[['Date', 'Close']], data_sell[['Date', 'Close']], 
+                       on='Date', how='inner', suffixes=('_buy', '_sell'))
+
+# Initialize the portfolio with 1000 USD for both strategies
+portfolio_value_strat1 = 1000
+portfolio_value_strat2 = 1000
+
+# Initialize lists to store portfolio values for each strategy
+portfolio_values_strat1 = []  # To store portfolio values each day for Strat 1
+
+# STRAT 1: Loop through the merged data for Strat 1 to calculate portfolio value each day
+for _, row in merged_data.iterrows():
+    close_buy = row['Close_buy']
+    close_sell = row['Close_sell']
+
+    # Calculate how many shares we can buy at buytime with the portfolio amount
+    shares_bought = portfolio_value_strat1 / close_buy
+    
+    # Sell the shares at selltime and get the revenue
+    portfolio_value_strat1 = shares_bought * close_sell
+
+    # Store the portfolio value for Strat 1
+    portfolio_values_strat1.append(portfolio_value_strat1)
+
+# STRAT 2: For Strat 2, buy on the first day and sell on the last day (selltime of the last day)
+# Buy once at buytime on the first day
+first_day_close_buy = merged_data.iloc[0]['Close_buy']
+shares_bought_strat2 = portfolio_value_strat2 / first_day_close_buy
+
+# Sell once at selltime on the last day
+last_day_close_sell = merged_data.iloc[-1]['Close_sell']
+final_portfolio_value_strat2 = shares_bought_strat2 * last_day_close_sell
+
+# Add the portfolio values for Strat 1 to the merged data
+merged_data['Portfolio_Value_Strategy1'] = portfolio_values_strat1
+
+# Print the results
+print(f"Strat 1 (Buy at {buytime}, Sell at {selltime}, Rebuy every day):")
+print(merged_data[['Date', 'Close_buy', 'Close_sell', 'Portfolio_Value_Strategy1']])
+
+print(f"\nStrat 2 (Buy at {buytime} on the first day, Sell at {selltime} on the last day):")
+print(f"Final Portfolio Value for Strat 2: ${final_portfolio_value_strat2}")
